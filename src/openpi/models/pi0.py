@@ -219,9 +219,9 @@ class Pi0(_model.BaseModel):
         rng: at.KeyArrayLike,
         observation: _model.Observation,
         *,
-        num_steps: int | at.Int[at.Array, ""] = 10,
+        num_steps: int = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
-    ) -> _model.Actions:
+    ) -> tuple[_model.Actions, dict]:
         observation = _model.preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
@@ -236,8 +236,15 @@ class Pi0(_model.BaseModel):
         positions = jnp.cumsum(prefix_mask, axis=1) - 1
         _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
 
+        # Accumulator for action expert hidden states (pre-velocity projection).
+        # Shape: (batch, num_steps, action_horizon, feature_dim)
+        feature_dim = self.PaliGemma.llm.module.configs[1].width
+        pre_vel_init = jnp.zeros(
+            (batch_size, num_steps, self.action_horizon, feature_dim), dtype=jnp.float32
+        )
+
         def step(carry):
-            x_t, time = carry
+            x_t, time, accum, i = carry
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
                 observation, x_t, jnp.broadcast_to(time, batch_size)
             )
@@ -266,14 +273,19 @@ class Pi0(_model.BaseModel):
                 adarms_cond=[None, adarms_cond],
             )
             assert prefix_out is None
-            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-            return x_t + dt * v_t, time + dt
+            # Capture action expert hidden states before projecting to velocity.
+            cur_feat = suffix_out[:, -self.action_horizon :]
+            accum = accum.at[:, i].set(cur_feat)
+            v_t = self.action_out_proj(cur_feat)
+
+            return x_t + dt * v_t, time + dt, accum, i + 1
 
         def cond(carry):
-            x_t, time = carry
+            _x_t, time, _accum, _i = carry
             # robust to floating-point error
             return time >= -dt / 2
 
-        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
-        return x_0
+        x_0, _, pre_vs, _ = jax.lax.while_loop(cond, step, (noise, 1.0, pre_vel_init, 0))
+        # pre_vs: (batch, num_steps, action_horizon, feature_dim)
+        return x_0, {"pre_velocity": pre_vs}

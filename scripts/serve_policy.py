@@ -51,8 +51,10 @@ class Args:
 
     # Port to serve the policy on.
     port: int = 8000
-    # Record the policy's behavior for debugging.
+    # Record the policy's behavior (inputs, actions, hidden embeddings) to disk.
     record: bool = False
+    # Directory to write policy records when --record is set.
+    record_dir: str = "policy_records"
 
     # Specifies how to load the policy. If not provided, the default policy for the environment will be used.
     policy: Checkpoint | Default = dataclasses.field(default_factory=Default)
@@ -125,9 +127,9 @@ def main(args: Args) -> None:
         logging.info("Overriding prompt with: %s", prompt)
         policy = PromptOverridePolicy(policy, prompt)
 
-    # Record the policy's behavior.
+    # Record inputs, actions, and hidden embeddings to disk.
     if args.record:
-        policy = _policy.PolicyRecorder(policy, "policy_records")
+        policy = _policy.PolicyRecorder(policy, args.record_dir)
 
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)

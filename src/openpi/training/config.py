@@ -570,11 +570,11 @@ class TrainConfig:
     num_train_steps: int = 30_000
 
     # How often (in steps) to log training metrics.
-    log_interval: int = 100
+    log_interval: int = 50
     # How often (in steps) to save checkpoints.
     save_interval: int = 1000
     # If set, any existing checkpoints matching step % keep_period == 0 will not be deleted.
-    keep_period: int | None = 5000 
+    keep_period: int | None = 25000
 
     # If true, will overwrite the checkpoint directory if it already exists.
     overwrite: bool = False
@@ -919,7 +919,7 @@ _CONFIGS = [
         batch_size=256,
         log_interval=100,
         save_interval=5000,
-        keep_period=20_000,
+        keep_period=25000,
         num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
     ),
     TrainConfig(
@@ -1197,8 +1197,8 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_collab_lora",
-        project_name="Collaborative Policy",
-        wandb_entity="RT2-DIFFUSE",
+        project_name="lora",
+        wandb_entity="arshad1kazi-university-of-wisconsin-madison",
         wandb_group="OpenPI (Collab LoRA)",
         wandb_tags=("openpi", "collab", "pi05", "lora"),
         model=pi0_config.Pi0Config(
@@ -1219,12 +1219,32 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ).get_freeze_filter(),
         ema_decay=None,
-        num_train_steps=25000,
-        save_interval=5000,
+        num_train_steps=20000,
+        save_interval=2000,
     ),
     #
     # Debugging configs.
     #
+    TrainConfig(
+        name="debug_lora",
+        data=FakeDataConfig(),
+        batch_size=2,
+        model=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        ema_decay=None,
+        save_interval=100,
+        overwrite=True,
+        exp_name="debug_lora",
+        num_train_steps=1000,
+        wandb_enabled=False,
+    ),
     TrainConfig(
         name="debug",
         data=FakeDataConfig(),
@@ -1279,3 +1299,4 @@ def get_config(config_name: str) -> TrainConfig:
         raise ValueError(f"Config '{config_name}' not found.{closest_str}")
 
     return _CONFIGS_DICT[config_name]
+

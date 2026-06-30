@@ -8,7 +8,7 @@ DATASET_NAME="${2:?Usage: stage_data.sh <netid> <dataset_name_under_local>}"
 REPO_ID="local/${DATASET_NAME}"
 
 TRANSFER_HOST="transfer.chtc.wisc.edu"
-GROUP_STAGING_DIR="/staging/groups/hagenow_group"
+GROUP_STAGING_DIR="/staging/aakazi/"
 DATASET_DIR="${LEROBOT_HOME}/${REPO_ID}"
 STAGED_TARBALL_NAME="${DATASET_NAME}_dataset.tar.gz"
 TARBALL="/tmp/${STAGED_TARBALL_NAME}"

@@ -1,0 +1,71 @@
+# ==============================================================================
+# HTCondor submit file for OpenPI LoRA fine-tuning on CHTC
+# Uses env.Dockerfile image (deps only) + transfers source code at runtime.
+#
+# Usage:
+#   condor_submit chtc/train_collab_lora.sub
+#   condor_submit chtc/train_collab_lora.sub config_name=pi05_collab_lora exp_name=run1
+#
+# Before submitting:
+#   1. Push image:  docker push arshad1kazi/openpi_env:latest
+#   2. Set W&B key: export WANDB_API_KEY=<your_key>
+#   3. Make sure dataset is at /staging/groups/hagenow_group/<your_dataset_path>
+# ==============================================================================
+
+universe                = container
+container_image         = docker://arshad1kazi/openpi_env:latest
+
+# --- Executable ---
+executable              = chtc/execute.sh
+
+# --- Arguments ---
+config_name             = pi05_collab_lora
+exp_name                = block_pick_$(Cluster)
+arguments               = $(config_name) $(exp_name) --checkpoint-base-dir=/staging/aakazi/openpi/checkpoints --resume
+
+# --- File transfer ---
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT_OR_EVICT
+
+# Transfer execute script, openpi source (git-pulled on access point), and dataset tarball from staging
+transfer_input_files    = chtc/execute.sh, \
+                          /home/rt2/Documents/openpi, \
+                          file:///staging/aakazi/collab_dataset.tar.gz
+
+# Pass WANDB_API_KEY from your submit shell environment
+getenv                  = WANDB_API_KEY
+
+
+# --- Logging ---
+log                     = logs/train_lora.log
+output                  = logs/train_lora.out
+error                   = logs/train_lora.err
+
+# --- Resource requests ---
+request_gpus            = 1
+request_cpus            = 8
+request_memory          = 100GB
+request_disk            = 500GB
+
+# L40/L40S (45GB VRAM) — plenty for LoRA
+gpus_minimum_capability = 8.0
+gpus_minimum_memory     = 24576
+
+# --- GPU Lab policies ---
++WantGPULab             = true
++GPUJobLength           = "short"
+
++is_resumable           = false
+
+Requirements            = (Target.HasCHTCStaging == true)
+
+# --- Environment ---
+environment             = "HOME=$_CONDOR_SCRATCH_DIR \
+                           XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+                           OPENPI_DATA_HOME=$_CONDOR_SCRATCH_DIR/.cache/openpi \
+                           HF_HOME=$_CONDOR_SCRATCH_DIR/.cache/hf"
+
+stream_output           = True
+stream_error            = True
+
+queue 1

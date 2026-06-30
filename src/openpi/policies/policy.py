@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 import logging
 import pathlib
+import pickle
 import time
 from typing import Any, TypeAlias
 
@@ -60,8 +61,11 @@ class Policy(BasePolicy):
             self._model.eval()
             self._sample_actions = model.sample_actions
         else:
-            # JAX model setup
-            self._sample_actions = nnx_utils.module_jit(model.sample_actions)
+            # JAX model setup — num_steps must be static so its value is baked into
+            # the accumulator shape at compile time.
+            self._sample_actions = nnx_utils.module_jit(
+                model.sample_actions, static_argnames=("num_steps",)
+            )
             self._rng = rng or jax.random.key(0)
 
     @override
@@ -89,17 +93,26 @@ class Policy(BasePolicy):
 
         observation = _model.Observation.from_dict(inputs)
         start_time = time.monotonic()
-        outputs = {
-            "state": inputs["state"],
-            "actions": self._sample_actions(sample_rng_or_pytorch_device, observation, **sample_kwargs),
-        }
+        sample_output = self._sample_actions(sample_rng_or_pytorch_device, observation, **sample_kwargs)
         model_time = time.monotonic() - start_time
+
+        # sample_actions may return (actions, aux_dict) or just actions.
+        if isinstance(sample_output, tuple):
+            actions, aux_outputs = sample_output
+        else:
+            actions, aux_outputs = sample_output, {}
+
+        outputs = {"state": inputs["state"], "actions": actions}
+        outputs.update(aux_outputs)
+
         if self._is_pytorch_model:
             outputs = jax.tree.map(lambda x: np.asarray(x[0, ...].detach().cpu()), outputs)
         else:
             outputs = jax.tree.map(lambda x: np.asarray(x[0, ...]), outputs)
 
-        outputs = self._output_transform(outputs)
+        # Output transforms operate only on state/actions — pass only those keys.
+        action_outputs = self._output_transform({"state": outputs["state"], "actions": outputs["actions"]})
+        outputs["actions"] = action_outputs["actions"]
         outputs["policy_timing"] = {
             "infer_ms": model_time * 1000,
         }
@@ -111,7 +124,26 @@ class Policy(BasePolicy):
 
 
 class PolicyRecorder(_base_policy.BasePolicy):
-    """Records the policy's behavior to disk."""
+    """Records policy inputs, actions, hidden embeddings, and video to disk.
+
+    Each inference call saves a pickle file containing:
+      - All observation fields (state, prompt, images as numpy arrays)
+      - Decoded actions
+      - pre_velocity: shape (num_steps, action_horizon, feature_dim)
+
+    Additionally, a continuous mp4 video is written per episode.  Frames are
+    buffered in memory and flushed to disk when the episode index changes.
+    Call flush_video() explicitly at episode end if you need an immediate write.
+
+    Observation metadata keys (optional, injected by the inference client):
+      run/episode_idx  : int  — episode index; creates per-episode sub-dirs and
+                                determines when to flush the video file
+      run/timestep     : int  — timestep within the episode
+      run/save_folder  : str  — override base save directory for this call
+
+    Video image keys (looked up in this order, first match wins):
+      observation/mount_image, observation/gripper_image
+    """
 
     def __init__(self, policy: _base_policy.BasePolicy, record_dir: str):
         self._policy = policy
@@ -125,11 +157,40 @@ class PolicyRecorder(_base_policy.BasePolicy):
     def infer(self, obs: dict) -> dict:  # type: ignore[misc]
         results = self._policy.infer(obs)
 
-        data = {"inputs": obs, "outputs": results}
-        data = flax.traverse_util.flatten_dict(data, sep="/")
+        # ---- Determine save directory ----
+        if "run/save_folder" in obs:
+            base_dir = pathlib.Path(obs["run/save_folder"]) / "policy_records"
+        else:
+            base_dir = self._record_dir
 
-        output_path = self._record_dir / f"step_{self._record_step}"
+        ep_idx = obs.get("run/episode_idx")
+        if ep_idx is not None:
+            save_dir = base_dir / f"episode_{int(ep_idx):04d}"
+        else:
+            save_dir = base_dir
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # ---- Build filename ----
+        t_idx = obs.get("run/timestep", self._record_step)
+        filename = f"step_{int(t_idx):05d}.pkl"
+
+        # ---- Assemble payload ----
+        payload: dict[str, Any] = {}
+
+        for k, v in obs.items():
+            if k.startswith("run/"):
+                continue
+            payload[f"obs/{k}"] = np.asarray(v) if not isinstance(v, (str, bytes)) else v
+
+        for k, v in results.items():
+            if k == "policy_timing":
+                continue
+            payload[f"result/{k}"] = np.asarray(v) if hasattr(v, "__array__") else v
+
+        with open(save_dir / filename, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        logging.debug(f"Saved record: {save_dir / filename}")
         self._record_step += 1
 
-        np.save(output_path, np.asarray(data))
         return results

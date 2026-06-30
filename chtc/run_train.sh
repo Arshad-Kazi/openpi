@@ -9,9 +9,28 @@ NETID="${3:?Usage: run_train.sh <config_name> <exp_name> <netid>}"
 PYTHON=/.venv/bin/python
 CKPT_DIR="checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 BUNDLE_NAME="checkpoint_bundle.tar"
+# Code root — extracted from openpi_src.tar.gz transferred by HTCondor.
+CODE_DIR="${_CONDOR_SCRATCH_DIR:-.}/openpi_src"
 
 echo "OpenPI CHTC job: config=${CONFIG_NAME} exp=${EXP_NAME} netid=${NETID}"
 nvidia-smi || true
+
+# Extract source code transferred by HTCondor and install just the project
+# packages (all deps are already baked into the image).
+if [ -f openpi_src.tar.gz ]; then
+    echo "Extracting openpi_src.tar.gz ..."
+    mkdir -p "$CODE_DIR"
+    tar -xzf openpi_src.tar.gz -C "$CODE_DIR" --strip-components=1
+    rm -f openpi_src.tar.gz
+    echo "Installing openpi project packages (deps already in image) ..."
+    /.venv/bin/pip install --no-deps -q \
+        -e "$CODE_DIR" \
+        -e "$CODE_DIR/packages/openpi-client"
+else
+    # Fallback: code was baked into the image at /app (old train.Dockerfile).
+    CODE_DIR="/app"
+    echo "WARNING: openpi_src.tar.gz not found; falling back to /app"
+fi
 
 export HF_HOME="${_CONDOR_SCRATCH_DIR:-.}/.cache/hf"
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
@@ -47,7 +66,7 @@ echo "Datasets available under $HF_LEROBOT_HOME:"
 ls "$HF_LEROBOT_HOME/local/" 2>/dev/null || echo "(none)"
 
 echo "Computing normalization statistics..."
-$PYTHON /app/scripts/compute_norm_stats.py --config-name "$CONFIG_NAME"
+$PYTHON "$CODE_DIR/scripts/compute_norm_stats.py" --config-name "$CONFIG_NAME"
 
 # Package checkpoints into one file for transfer to /staging.
 package_checkpoints() {
@@ -76,7 +95,7 @@ trap 'on_exit_or_signal' EXIT TERM INT
 
 echo "Starting training..."
 mkdir -p "$CKPT_DIR"
-$PYTHON /app/scripts/train.py "$CONFIG_NAME" \
+$PYTHON "$CODE_DIR/scripts/train.py" "$CONFIG_NAME" \
     --exp-name="$EXP_NAME" \
     --overwrite
 
