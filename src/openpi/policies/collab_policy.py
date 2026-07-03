@@ -3,10 +3,10 @@
 Your dataset has:
   - state: 8D  (xyz position + quaternion + gripper_actual_position)
   - action: 8D (xyz position + quaternion + gripper_commanded_position)
-  - images: mount camera (third-person) + gripper camera (wrist)
+  - images: mount camera (third-person) + gripper camera (wrist) + side camera
 
 The model expects three image slots (base, left_wrist, right_wrist).
-We map mount → base, gripper → left_wrist, and zero-pad right_wrist.
+We map mount → base, gripper → left_wrist, side → right_wrist.
 """
 
 import dataclasses
@@ -24,6 +24,7 @@ def make_collab_example() -> dict:
         "observation/state": np.random.rand(8).astype(np.float32),
         "observation/mount_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "observation/gripper_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
+        "observation/side_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "prompt": "pick up the object",
     }
 
@@ -54,18 +55,20 @@ class CollabInputs(transforms.DataTransformFn):
         mount_image = _parse_image(data["observation/mount_image"])
         # Gripper camera = wrist view → left_wrist_0_rgb
         gripper_image = _parse_image(data["observation/gripper_image"])
+        # Side camera → right_wrist_0_rgb
+        side_image = _parse_image(data["observation/side_image"])
 
         inputs = {
             "state": np.asarray(data["observation/state"], dtype=np.float32),
             "image": {
                 "base_0_rgb": mount_image,
                 "left_wrist_0_rgb": gripper_image,
-                "right_wrist_0_rgb": np.zeros_like(mount_image),
+                "right_wrist_0_rgb": side_image,
             },
             "image_mask": {
                 "base_0_rgb": np.True_,
                 "left_wrist_0_rgb": np.True_,
-                "right_wrist_0_rgb": np.True_ if self.model_type == _model.ModelType.PI0_FAST else np.False_,
+                "right_wrist_0_rgb": np.True_,
             },
         }
 

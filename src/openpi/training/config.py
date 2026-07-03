@@ -383,6 +383,7 @@ class LeRobotCollabDataConfig(DataConfigFactory):
                     {
                         "observation/mount_image": "mount_image",
                         "observation/gripper_image": "gripper_image",
+                        "observation/side_image": "side_image",
                         "observation/state": "state",
                         "actions": "actions",
                         "prompt": "prompt",

@@ -73,6 +73,11 @@ def main(
                 "shape": (image_size[1], image_size[0], 3),
                 "names": ["height", "width", "channel"],
             },
+            "side_image": {
+                "dtype": "image",
+                "shape": (image_size[1], image_size[0], 3),
+                "names": ["height", "width", "channel"],
+            },
             "state": {
                 "dtype": "float32",
                 "shape": (8,),
@@ -122,10 +127,17 @@ def main(
                 mount_img = cv2.cvtColor(mount_img, cv2.COLOR_BGR2RGB)
                 mount_img = cv2.resize(mount_img, image_size)
 
+                # Decode side image
+                side_jpeg = np.array(f["side_image_rgb_compressed"][frame_idx])
+                side_img = cv2.imdecode(side_jpeg, cv2.IMREAD_COLOR)
+                side_img = cv2.cvtColor(side_img, cv2.COLOR_BGR2RGB)
+                side_img = cv2.resize(side_img, image_size)
+
                 dataset.add_frame(
                     {
                         "mount_image": mount_img,
                         "gripper_image": gripper_img,
+                        "side_image": side_img,
                         "state": states[frame_idx],
                         "actions": actions[frame_idx],
                         "task": default_task,

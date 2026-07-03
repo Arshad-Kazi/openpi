@@ -1,0 +1,30 @@
+# Sart the driver
+ros2 launch xarm_api xarm6_driver.launch.py robot_ip:=192.168.1.111 report_type:=dev add_gripper:=true
+
+# Start the cameras
+ros2 launch data_collection camera_only_launch.py
+
+# Start the server policy
+uv run scripts/serve_policy.py policy:checkpoint \
+  --policy.config pi05_collab \
+  --policy.dir /home/rt2/arshad/block_pick_models/openpi/checkpoints/pi05_collab/block_pick_finetune_5438640/26000
+
+
+# Run the inferencer that talks to the server and fetcehs the data
+LD_LIBRARY_PATH=/home/rt2/miniconda3/envs/aiml_ws_sh/lib:$LD_LIBRARY_PATH \
+python3 scripts/inference_watcher.py --config "/home/rt2/arshad/openpi/openpi.json"
+
+
+# Run arm_stack infernec package
+source install/setup.bash
+ros2 launch xarm_stack inference_test.launch.py config_path:="/home/rt2/arshad/openpi/openpi.json"
+
+# FoxGLove
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml
+
+
+# Launch the UI
+use the link from the arm_stack packages.
+
+
+
