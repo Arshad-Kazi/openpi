@@ -3,7 +3,7 @@
     "openpi": {
         "host": "localhost",
         "port": 8000,
-        "default_prompt": "pick up all the boxes and place it inside the white tray",
+        "default_prompt": "Assist the operator in tying a suture knot by handing over the scissors and needle driver as needed.",
         "image_size": [
             224,
             224
@@ -11,6 +11,7 @@
         "obs_keys": {
             "mount_image": "observation/mount_image",
             "gripper_image": "observation/gripper_image",
+            "side_image": "observation/side_image",
             "state": "observation/state"
         }
     },

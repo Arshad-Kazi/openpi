@@ -371,29 +371,37 @@ class LeRobotCollabDataConfig(DataConfigFactory):
     # Default prompt when no per-episode task description is available.
     default_prompt: str = "<control_mode> end effector <control_mode> perform the collaborative task"
 
+    # Whether the dataset was converted with a side camera (observation/side_image).
+    # Off by default; set True for datasets recorded with a side camera. Must match the
+    # --use_side_camera flag used when converting the dataset.
+    use_side_camera: bool = False
+
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         # Repack: map LeRobot dataset keys → keys expected by CollabInputs.
         # The LeRobot dataset keys come from the convert script's `features` dict
         # and the `add_frame` call (prefixed with "observation/" by LeRobot for non-action fields).
+        repack_mapping = {
+            "observation/mount_image": "mount_image",
+            "observation/gripper_image": "gripper_image",
+            "observation/state": "state",
+            "actions": "actions",
+            "prompt": "prompt",
+        }
+        if self.use_side_camera:
+            repack_mapping["observation/side_image"] = "side_image"
         repack_transform = _transforms.Group(
-            inputs=[
-                _transforms.RepackTransform(
-                    {
-                        "observation/mount_image": "mount_image",
-                        "observation/gripper_image": "gripper_image",
-                        "observation/side_image": "side_image",
-                        "observation/state": "state",
-                        "actions": "actions",
-                        "prompt": "prompt",
-                    }
-                )
-            ]
+            inputs=[_transforms.RepackTransform(repack_mapping)]
         )
 
         data_transforms = _transforms.Group(
-            inputs=[collab_policy.CollabInputs(model_type=model_config.model_type)],
+            inputs=[
+                collab_policy.CollabInputs(
+                    model_type=model_config.model_type,
+                    use_side_camera=self.use_side_camera,
+                )
+            ],
             outputs=[collab_policy.CollabOutputs()],
         )
 
@@ -1220,7 +1228,7 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ).get_freeze_filter(),
         ema_decay=None,
-        num_train_steps=20000,
+        num_train_steps=40000,
         save_interval=2000,
     ),
     #

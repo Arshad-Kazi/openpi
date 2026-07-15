@@ -3,10 +3,12 @@
 Your dataset has:
   - state: 8D  (xyz position + quaternion + gripper_actual_position)
   - action: 8D (xyz position + quaternion + gripper_commanded_position)
-  - images: mount camera (third-person) + gripper camera (wrist) + side camera
+  - images: mount camera (third-person) + gripper camera (wrist) + optional side camera
 
 The model expects three image slots (base, left_wrist, right_wrist).
 We map mount → base, gripper → left_wrist, side → right_wrist.
+The side camera is optional (off by default): when absent, right_wrist is
+zero-filled and masked off. Toggle it with CollabInputs(use_side_camera=True).
 """
 
 import dataclasses
@@ -18,15 +20,17 @@ from openpi import transforms
 from openpi.models import model as _model
 
 
-def make_collab_example() -> dict:
+def make_collab_example(use_side_camera: bool = False) -> dict:
     """Creates a random input example for testing the Collab policy."""
-    return {
+    example = {
         "observation/state": np.random.rand(8).astype(np.float32),
         "observation/mount_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "observation/gripper_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
-        "observation/side_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "prompt": "pick up the object",
     }
+    if use_side_camera:
+        example["observation/side_image"] = np.random.randint(256, size=(224, 224, 3), dtype=np.uint8)
+    return example
 
 
 def _parse_image(image) -> np.ndarray:
@@ -49,14 +53,24 @@ class CollabInputs(transforms.DataTransformFn):
     """
 
     model_type: _model.ModelType
+    # Whether the dataset/deployment provides a side camera (mapped to right_wrist_0_rgb).
+    # When False (default), that slot is zero-filled and masked off — except for pi0-FAST,
+    # which cannot mask images and instead sees a black image.
+    use_side_camera: bool = False
 
     def __call__(self, data: dict) -> dict:
         # Mount camera = third-person view → base_0_rgb
         mount_image = _parse_image(data["observation/mount_image"])
         # Gripper camera = wrist view → left_wrist_0_rgb
         gripper_image = _parse_image(data["observation/gripper_image"])
-        # Side camera → right_wrist_0_rgb
-        side_image = _parse_image(data["observation/side_image"])
+
+        # Side camera → right_wrist_0_rgb. Optional: when absent, pad with zeros and mask off.
+        if self.use_side_camera:
+            side_image = _parse_image(data["observation/side_image"])
+            side_mask = np.True_
+        else:
+            side_image = np.zeros_like(mount_image)
+            side_mask = np.True_ if self.model_type == _model.ModelType.PI0_FAST else np.False_
 
         inputs = {
             "state": np.asarray(data["observation/state"], dtype=np.float32),
@@ -68,7 +82,7 @@ class CollabInputs(transforms.DataTransformFn):
             "image_mask": {
                 "base_0_rgb": np.True_,
                 "left_wrist_0_rgb": np.True_,
-                "right_wrist_0_rgb": np.True_,
+                "right_wrist_0_rgb": side_mask,
             },
         }
 

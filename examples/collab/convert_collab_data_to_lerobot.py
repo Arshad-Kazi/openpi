@@ -37,6 +37,7 @@ def main(
     image_size: tuple[int, int] = (224, 224),
     default_task: str = "<control_mode> end effector <control_mode> perform the collaborative task",
     push_to_hub: bool = False,
+    use_side_camera: bool = False,
 ):
     """
     Args:
@@ -47,6 +48,9 @@ def main(
         image_size: (width, height) to resize images to.
         default_task: Language instruction to attach to every episode.
         push_to_hub: Whether to push the dataset to HuggingFace Hub.
+        use_side_camera: Whether the episodes include a side camera
+            (side_image_rgb_compressed). Defaults to False; pass
+            --use_side_camera for experiments recorded with a side camera.
     """
     output_path = HF_LEROBOT_HOME / repo_name
     if output_path.exists():
@@ -58,37 +62,40 @@ def main(
 
     # State: 7D pose + 1D gripper = 8D
     # Action: 7D desired pose + 1D gripper cmd = 8D
+    features = {
+        "mount_image": {
+            "dtype": "image",
+            "shape": (image_size[1], image_size[0], 3),
+            "names": ["height", "width", "channel"],
+        },
+        "gripper_image": {
+            "dtype": "image",
+            "shape": (image_size[1], image_size[0], 3),
+            "names": ["height", "width", "channel"],
+        },
+        "state": {
+            "dtype": "float32",
+            "shape": (8,),
+            "names": ["state"],
+        },
+        "actions": {
+            "dtype": "float32",
+            "shape": (8,),
+            "names": ["actions"],
+        },
+    }
+    if use_side_camera:
+        features["side_image"] = {
+            "dtype": "image",
+            "shape": (image_size[1], image_size[0], 3),
+            "names": ["height", "width", "channel"],
+        }
+
     dataset = LeRobotDataset.create(
         repo_id=repo_name,
         robot_type="xarm6",
         fps=fps,
-        features={
-            "mount_image": {
-                "dtype": "image",
-                "shape": (image_size[1], image_size[0], 3),
-                "names": ["height", "width", "channel"],
-            },
-            "gripper_image": {
-                "dtype": "image",
-                "shape": (image_size[1], image_size[0], 3),
-                "names": ["height", "width", "channel"],
-            },
-            "side_image": {
-                "dtype": "image",
-                "shape": (image_size[1], image_size[0], 3),
-                "names": ["height", "width", "channel"],
-            },
-            "state": {
-                "dtype": "float32",
-                "shape": (8,),
-                "names": ["state"],
-            },
-            "actions": {
-                "dtype": "float32",
-                "shape": (8,),
-                "names": ["actions"],
-            },
-        },
+        features=features,
         image_writer_threads=10,
         image_writer_processes=5,
     )
@@ -127,22 +134,23 @@ def main(
                 mount_img = cv2.cvtColor(mount_img, cv2.COLOR_BGR2RGB)
                 mount_img = cv2.resize(mount_img, image_size)
 
-                # Decode side image
-                side_jpeg = np.array(f["side_image_rgb_compressed"][frame_idx])
-                side_img = cv2.imdecode(side_jpeg, cv2.IMREAD_COLOR)
-                side_img = cv2.cvtColor(side_img, cv2.COLOR_BGR2RGB)
-                side_img = cv2.resize(side_img, image_size)
+                frame = {
+                    "mount_image": mount_img,
+                    "gripper_image": gripper_img,
+                    "state": states[frame_idx],
+                    "actions": actions[frame_idx],
+                    "task": default_task,
+                }
 
-                dataset.add_frame(
-                    {
-                        "mount_image": mount_img,
-                        "gripper_image": gripper_img,
-                        "side_image": side_img,
-                        "state": states[frame_idx],
-                        "actions": actions[frame_idx],
-                        "task": default_task,
-                    }
-                )
+                if use_side_camera:
+                    # Decode side image
+                    side_jpeg = np.array(f["side_image_rgb_compressed"][frame_idx])
+                    side_img = cv2.imdecode(side_jpeg, cv2.IMREAD_COLOR)
+                    side_img = cv2.cvtColor(side_img, cv2.COLOR_BGR2RGB)
+                    side_img = cv2.resize(side_img, image_size)
+                    frame["side_image"] = side_img
+
+                dataset.add_frame(frame)
 
         dataset.save_episode()
 
