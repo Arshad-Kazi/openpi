@@ -1051,6 +1051,45 @@ _CONFIGS = [
         num_train_steps=5000,
         save_interval=5000,
     ),
+    # Full (non-LoRA) pi05 fine-tune for assistive suturing.
+    # Same collab robot/format as pi05_collab, but with the side camera enabled so the
+    # served policy consumes observation/side_image (mapped to right_wrist) instead of
+    # zero-filling and masking it off. Serves checkpoints like assistive_suturing_ff_*;
+    # asset_id resolves to local/collab so norm stats load from the checkpoint.
+    TrainConfig(
+        name="pi05_suture_assist",
+        project_name="Collaborative Policy",
+        wandb_entity="RT2-DIFFUSE",
+        wandb_group="OpenPI (Suture Assist)",
+        wandb_tags=("openpi", "suture_assist", "collab", "pi05"),
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
+        data=LeRobotCollabDataConfig(
+            repo_id="local/collab",
+            base_config=DataConfig(prompt_from_task=True),
+            use_side_camera=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=5000,
+        save_interval=5000,
+    ),
+    # Full (non-LoRA) pi05 fine-tune on the sparse_block_picking dataset.
+    # Serving config for checkpoints like sparse_block_picking_ff_* — full pi05 arch,
+    # asset_id resolves to local/sparse_block_picking so norm stats load from the checkpoint.
+    TrainConfig(
+        name="pi05_sparse_block_picking",
+        project_name="Collaborative Policy",
+        wandb_entity="arshad1kazi-university-of-wisconsin-madison",
+        wandb_group="OpenPI (Sparse Block Picking)",
+        wandb_tags=("openpi", "sparse_block_picking", "pi05"),
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
+        data=LeRobotCollabDataConfig(
+            repo_id="local/sparse_block_picking",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=5000,
+        save_interval=5000,
+    ),
     #
     # Handover derisk fine-tuning configs.
     # Same robot/format as collab — reuses LeRobotCollabDataConfig with a different repo_id.
@@ -1218,7 +1257,7 @@ _CONFIGS = [
             action_horizon=16,
         ),
         data=LeRobotCollabDataConfig(
-            repo_id="local/collab",
+            repo_id="local/sparse_block_picking",
             base_config=DataConfig(prompt_from_task=True),
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),

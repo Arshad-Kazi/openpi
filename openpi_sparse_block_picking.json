@@ -1,0 +1,43 @@
+{
+    "model_type": "openpi",
+    "openpi": {
+        "host": "localhost",
+        "port": 8000,
+        "default_prompt": "pick the yellow box and and place it in the white tray when the blue box is inside the white tray",
+        "image_size": [
+            224,
+            224
+        ],
+        "obs_keys": {
+            "mount_image": "observation/mount_image",
+            "gripper_image": "observation/gripper_image",
+            "state": "observation/state"
+        }
+    },
+    "dataset": {
+        "action_mode": "absolute",
+        "orientation_rep": "quaternion"
+    },
+    "hardgate": {
+        "enabled": false,
+        "threshold": 0.5,
+        "consecutive_moves_required": 3
+    },
+    "inference": {
+        "inference_publish_hz": 10,
+        "reset_pose": {
+            "position": {
+                "x": -0.055,
+                "y": 0.5423,
+                "z": 0.3118
+            },
+            "orientation": {
+                "x": 0.7071,
+                "y": 0.7071,
+                "z": 0.0,
+                "w": 0.0
+            },
+            "gripper": 850.0
+        }
+    }
+}

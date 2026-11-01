@@ -1,8 +1,15 @@
 {
+  "$schema": "https://json-schema.org/claude-code-settings.json",
   "permissions": {
-    "allow": [
-      "Bash(lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,MODEL,TRAN)",
-      "Bash(lsusb)"
+    "allow": ["Bash"],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(unlink:*)",
+      "Bash(shred:*)",
+      "Bash(git clean:*)",
+      "Bash(git rm:*)"
+      
     ]
   }
 }
