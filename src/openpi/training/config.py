@@ -584,7 +584,7 @@ class TrainConfig:
     num_train_steps: int = 30_000
 
     # How often (in steps) to log training metrics.
-    log_interval: int = 50
+    log_interval: int = 10
     # How often (in steps) to save checkpoints.
     save_interval: int = 1000
     # If set, any existing checkpoints matching step % keep_period == 0 will not be deleted.
@@ -1043,18 +1043,18 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_collab",
-        project_name="Collaborative Policy",
-        wandb_entity="RT2-DIFFUSE",
+        project_name="sparse_block_picking_with_fix_start_human_crop_automated_50_150",
+        wandb_entity="arshad1kazi-university-of-wisconsin-madison",
         wandb_group="OpenPI (Collab)",
         wandb_tags=("openpi", "collab", "pi05"),
         model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
         data=LeRobotCollabDataConfig(
-            repo_id="local/collab",
+            repo_id="local/sparse_block_picking_with_fix_start_human_crop_automated_50_150",
             base_config=DataConfig(prompt_from_task=True),
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=5000,
-        save_interval=5000,
+        num_train_steps=20000,
+        save_interval=2000,
     ),
     # Sim tray task (action-leakage-sim). pi05_sim_tray is exactly the run that made the H=16 checkpoint
     # (checkpoints/pi05_collab/sim_red_blue_tray_h16, trained on CHTC as pi05_collab with repo_id="local/sim_tray" and
@@ -1285,7 +1285,7 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_collab_lora",
-        project_name="lora",
+        project_name="block_picking",
         wandb_entity="arshad1kazi-university-of-wisconsin-madison",
         wandb_group="OpenPI (Collab LoRA)",
         wandb_tags=("openpi", "collab", "pi05", "lora"),

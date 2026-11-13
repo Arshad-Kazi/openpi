@@ -4,22 +4,25 @@ set -euo pipefail
 # ── Arguments ─────────────────────────────────────────────────────────────────
 # $1: config name (required)   e.g. pi05_collab_lora
 # $2: experiment name          e.g. block_pick_123  (defaults to timestamp)
-# $3+: extra args forwarded to train.py  e.g. --checkpoint-base-dir=... --resume
-CONFIG_NAME="${1:?Usage: execute.sh <config_name> [exp_name] [extra train.py args...]}"
+# $3: dataset name             e.g. sim_tray  (tarball <name>_dataset.tar.gz -> local/<name>)
+# $4+: extra args forwarded to train.py  e.g. --checkpoint-base-dir=... --resume
+CONFIG_NAME="${1:?Usage: execute.sh <config_name> <exp_name> <dataset> [extra train.py args...]}"
 EXP_NAME="${2:-run_$(date +%Y%m%d_%H%M%S)}"
-PYTHON=/.venv/bin/python
+DATASET="${3:?Usage: execute.sh <config_name> <exp_name> <dataset> [extra train.py args...]}"
+REPO_ID="local/${DATASET}"
 
 echo "OpenPI CHTC job: config=${CONFIG_NAME}  exp=${EXP_NAME}"
 nvidia-smi || true
 
 # ── Install project packages ───────────────────────────────────────────────────
 # HTCondor transfers the openpi source directory from the access point (git pull).
-# All heavy deps are already baked into the image — only install the project itself.
+# All heavy deps are already baked into /.venv (UV_PROJECT_ENVIRONMENT, set in the
+# image) — `uv sync --frozen` only adds the project itself (editable), matching
+# uv.lock exactly, no network needed.
 CODE_DIR="${_CONDOR_SCRATCH_DIR:-.}/openpi"
 echo "Installing openpi from: $CODE_DIR"
-/.venv/bin/pip install --no-deps -q \
-    -e "$CODE_DIR" \
-    -e "$CODE_DIR/packages/openpi-client"
+UV_RUN=(uv run --project "$CODE_DIR" --frozen --no-dev --quiet)
+uv sync --project "$CODE_DIR" --frozen --no-dev --quiet
 
 # ── Cache directories ─────────────────────────────────────────────────────────
 export HF_HOME="${_CONDOR_SCRATCH_DIR:-.}/.cache/hf"
@@ -57,21 +60,24 @@ ls "$HF_LEROBOT_HOME/local/" 2>/dev/null || echo "(none found)"
 # ── JAX / SSL ─────────────────────────────────────────────────────────────────
 export XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.9}"
 # Use certifi's CA bundle — the container's system certs may be stale or missing.
-export SSL_CERT_FILE=$($PYTHON -c "import certifi; print(certifi.where())")
+export SSL_CERT_FILE=$("${UV_RUN[@]}" python -c "import certifi; print(certifi.where())")
 
 # ── W&B ───────────────────────────────────────────────────────────────────────
 # Passed from the submit node via `getenv = WANDB_API_KEY` in the .sub file.
-# Fallback: read from wandb_api_key.txt if it was transferred alongside the job.
-if [ -z "${WANDB_API_KEY:-}" ] && [ -f wandb_api_key.txt ]; then
-    export WANDB_API_KEY=$(cat wandb_api_key.txt)
+# Fallback: read from wandb_api_key.txt, transferred as part of the openpi source dir.
+if [ -z "${WANDB_API_KEY:-}" ] && [ -f "$CODE_DIR/wandb_api_key.txt" ]; then
+    export WANDB_API_KEY=$(cat "$CODE_DIR/wandb_api_key.txt")
 fi
 
 # ── Normalization statistics ───────────────────────────────────────────────────
-echo "Computing normalization statistics for: $CONFIG_NAME"
-$PYTHON "$CODE_DIR/scripts/compute_norm_stats.py" --config-name "$CONFIG_NAME"
+echo "Computing normalization statistics for: $CONFIG_NAME ($REPO_ID)"
+"${UV_RUN[@]}" python "$CODE_DIR/scripts/compute_norm_stats.py" \
+    --config-name "$CONFIG_NAME" --repo-id "$REPO_ID"
 
 # ── Training ──────────────────────────────────────────────────────────────────
-echo "Starting training: config=$CONFIG_NAME  exp=$EXP_NAME"
-$PYTHON "$CODE_DIR/scripts/train.py" "$CONFIG_NAME" \
+echo "Starting training: config=$CONFIG_NAME  exp=$EXP_NAME  data=$REPO_ID"
+"${UV_RUN[@]}" python "$CODE_DIR/scripts/train.py" "$CONFIG_NAME" \
     --exp-name="$EXP_NAME" \
-    "${@:3}"
+    --data.repo-id="$REPO_ID" \
+    "${@:4}"
+

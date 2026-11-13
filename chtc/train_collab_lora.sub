@@ -4,12 +4,13 @@
 #
 # Usage:
 #   condor_submit chtc/train_collab_lora.sub
-#   condor_submit chtc/train_collab_lora.sub config_name=pi05_collab_lora exp_name=run1
+#   condor_submit -a "exp_name=run1" -a "gpu_types=H200" chtc/train_collab_lora.sub
+#   (override any variable below with -a "name=value"; plain name=value is ignored)
 #
 # Before submitting:
 #   1. Push image:  docker push arshad1kazi/openpi_env:latest
 #   2. Set W&B key: export WANDB_API_KEY=<your_key>
-#   3. Make sure dataset is at /staging/groups/hagenow_group/<your_dataset_path>
+#   3. Make sure dataset is at $(staging_dir)/<dataset>_dataset.tar.gz
 # ==============================================================================
 
 universe                = container
@@ -18,10 +19,16 @@ container_image         = docker://arshad1kazi/openpi_env:latest
 # --- Executable ---
 executable              = chtc/execute.sh
 
-# --- Arguments ---
-config_name             = pi05_collab_lora
-exp_name                = block_pick_$(Cluster)
-arguments               = $(config_name) $(exp_name) --checkpoint-base-dir=/staging/aakazi/openpi/checkpoints --resume
+# --- What to train (edit these, or override: condor_submit -a "dataset=X" ...) ---
+config_name             = pi05_collab
+# Tarball at $(staging_dir)/<dataset>_dataset.tar.gz, extracting to local/<dataset>/
+dataset                 = sim_tray
+exp_name                = sim_red_blue_tray
+staging_dir             = /staging/a/aakazi
+# Extra train.py overrides, e.g. --batch-size=16 --model.action-horizon=24
+train_args              = --num-train-steps=20000 --save-interval=2000
+
+arguments               = $(config_name) $(exp_name) $(dataset) --checkpoint-base-dir=$(staging_dir)/openpi/checkpoints --resume --project-name=$(dataset) $(train_args)
 
 # --- File transfer ---
 should_transfer_files   = YES
@@ -29,35 +36,39 @@ when_to_transfer_output = ON_EXIT_OR_EVICT
 
 # Transfer execute script, openpi source (git-pulled on access point), and dataset tarball from staging
 transfer_input_files    = chtc/execute.sh, \
-                          /home/rt2/Documents/openpi, \
-                          file:///staging/aakazi/collab_dataset.tar.gz
+                          /home/aakazi/openpi, \
+                          file://$(staging_dir)/$(dataset)_dataset.tar.gz
 
 # Pass WANDB_API_KEY from your submit shell environment
 getenv                  = WANDB_API_KEY
 
 
 # --- Logging ---
-log                     = logs/train_lora.log
-output                  = logs/train_lora.out
-error                   = logs/train_lora.err
+log                     = logs/$(config_name)_$(exp_name).log
+output                  = logs/$(config_name)_$(exp_name).out
+error                   = logs/$(config_name)_$(exp_name).err
 
 # --- Resource requests ---
-request_gpus            = 1
 request_cpus            = 8
-request_memory          = 100GB
+request_memory          = 200GB
 request_disk            = 500GB
+request_gpus            = 1
 
-# L40/L40S (45GB VRAM) — plenty for LoRA
+# --- GPU selection ---
+# Allowed GPU models, separated by "|". Override at submit time: -a "gpu_types=H200"
+gpu_types               = H200|A100
+# At least 80GB VRAM (excludes A100-40GB); Ampere (8.0) or newer
+gpus_minimum_memory     = 80000
 gpus_minimum_capability = 8.0
-gpus_minimum_memory     = 24576
 
 # --- GPU Lab policies ---
 +WantGPULab             = true
 +GPUJobLength           = "short"
 
-+is_resumable           = false
++is_resumable           = true
 
-Requirements            = (Target.HasCHTCStaging == true)
+# Match any free GPU from gpu_types, and require staging access
+Requirements            = regexp("$(gpu_types)", GPUs_DeviceName) && (Target.HasCHTCStaging == true)
 
 # --- Environment ---
 environment             = "HOME=$_CONDOR_SCRATCH_DIR \
