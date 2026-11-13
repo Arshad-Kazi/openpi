@@ -91,6 +91,11 @@ class DataConfig:
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
 
+    # Optional name of a frame mask file in the LeRobot dataset's meta/ folder (e.g. "leak_mask_h16.json", written by
+    # action-leakage-sim/scripts/make_leak_mask.py). Training and norm stats then skip the samples it excludes; every
+    # kept sample still reads its action chunk from the full episode. See data_loader.load_frame_mask.
+    frame_mask: str | None = None
+
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
     # Action space for DROID dataset.
@@ -1050,6 +1055,41 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=5000,
         save_interval=5000,
+    ),
+    # Sim tray task (action-leakage-sim). pi05_sim_tray is exactly the run that made the H=16 checkpoint
+    # (checkpoints/pi05_collab/sim_red_blue_tray_h16, trained on CHTC as pi05_collab with repo_id="local/sim_tray" and
+    # num_train_steps=20000). pi05_sim_tray_noleak is the same run on the same data, minus the training samples whose
+    # action chunk leaks a lamp change the frame cannot show yet (meta/leak_mask_h16.json). Keep the two identical
+    # apart from frame_mask, so the leak is the only difference between the models.
+    TrainConfig(
+        name="pi05_sim_tray",
+        project_name="Collaborative Policy",
+        wandb_entity="RT2-DIFFUSE",
+        wandb_group="OpenPI (Collab)",
+        wandb_tags=("openpi", "collab", "pi05", "sim_tray"),
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
+        data=LeRobotCollabDataConfig(
+            repo_id="local/sim_tray",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20000,
+        save_interval=2000,  # checkpoint progress during the run; saving does not change training
+    ),
+    TrainConfig(
+        name="pi05_sim_tray_noleak",
+        project_name="Collaborative Policy",
+        wandb_entity="RT2-DIFFUSE",
+        wandb_group="OpenPI (Collab)",
+        wandb_tags=("openpi", "collab", "pi05", "sim_tray", "noleak"),
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
+        data=LeRobotCollabDataConfig(
+            repo_id="local/sim_tray",
+            base_config=DataConfig(prompt_from_task=True, frame_mask="leak_mask_h16.json"),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20000,
+        save_interval=2000,  # checkpoint progress during the run; saving does not change training
     ),
     # Full (non-LoRA) pi05 fine-tune for assistive suturing.
     # Same collab robot/format as pi05_collab, but with the side camera enabled so the

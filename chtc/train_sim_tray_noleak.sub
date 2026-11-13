@@ -1,0 +1,81 @@
+# ==============================================================================
+# HTCondor submit file: full pi0.5 fine-tune on the sim tray dataset WITHOUT leaked samples
+# (config pi05_sim_tray_noleak), the control run for the H=16 checkpoint sim_red_blue_tray_h16.
+#
+# Same flow as train_collab_lora.sub (env image + openpi source from the access point + execute.sh), with full
+# fine-tune resources. The run differs from the H=16 one only in DataConfig.frame_mask: the training samples listed in
+# the dataset's meta/leak_mask_h16.json are skipped, and execute.sh's norm stats are computed on the kept samples.
+#
+# Usage (on the access point, from the openpi checkout):
+#   git pull                                   # needs the frame_mask commit
+#   export WANDB_API_KEY=<your_key>
+#   condor_submit chtc/train_sim_tray_noleak.sub
+#   condor_submit chtc/train_sim_tray_noleak.sub exp_name=sim_red_blue_tray_noleak_h16_run2
+#
+# Needs /staging/a/aakazi/sim_tray_dataset.tar.gz staged WITH meta/leak_mask_h16.json:
+#   tar -tzf /staging/a/aakazi/sim_tray_dataset.tar.gz | grep leak_mask      -> local/sim_tray/meta/leak_mask_h16.json
+# Without it, data_loader.load_frame_mask stops the job with FileNotFoundError (it never trains unmasked silently).
+#
+# Checkpoints: /staging/a/aakazi/openpi/checkpoints/pi05_sim_tray_noleak/<exp_name>/<step>/
+# ==============================================================================
+
+universe                = container
+container_image         = docker://arshad1kazi/openpi_env:latest
+
+# --- Executable ---
+executable              = chtc/execute.sh
+
+# --- Arguments ---
+config_name             = pi05_sim_tray_noleak
+exp_name                = sim_red_blue_tray_noleak_h16
+staging                 = /staging/a/aakazi
+arguments               = $(config_name) $(exp_name) --checkpoint-base-dir=$(staging)/openpi/checkpoints --resume
+
+# --- File transfer ---
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT_OR_EVICT
+
+# The openpi checkout on the access point (git-pulled there), the execute script, and the dataset tarball.
+# Set openpi_dir to wherever your checkout is (train_collab_lora.sub uses /home/rt2/Documents/openpi).
+openpi_dir              = /home/rt2/Documents/openpi
+transfer_input_files    = chtc/execute.sh, \
+                          $(openpi_dir), \
+                          file://$(staging)/sim_tray_dataset.tar.gz
+
+# Pass WANDB_API_KEY from your submit shell environment
+getenv                  = WANDB_API_KEY
+
+# --- Logging ---
+log                     = logs/train_sim_tray_noleak_$(Cluster).log
+output                  = logs/train_sim_tray_noleak_$(Cluster).out
+error                   = logs/train_sim_tray_noleak_$(Cluster).err
+
+# --- Resource requests ---
+# Full (non-LoRA) pi0.5 fine-tuning needs >= 70 GB of GPU memory: H100 (80 GB) or H200 (141 GB).
+request_gpus            = 1
+request_cpus            = 8
+request_memory          = 200GB
+request_disk            = 200GB
+
+gpus_minimum_capability = 9.0
+gpus_minimum_memory     = 80000
+
+# --- GPU Lab policies ---
++WantGPULab             = true
+# "long" = up to 7 days; 20k full fine-tune steps can exceed the 12 h "short" limit
++GPUJobLength           = "long"
+
++is_resumable           = false
+
+Requirements            = (Target.HasCHTCStaging == true)
+
+# --- Environment ---
+environment             = "HOME=$_CONDOR_SCRATCH_DIR \
+                           XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+                           OPENPI_DATA_HOME=$_CONDOR_SCRATCH_DIR/.cache/openpi \
+                           HF_HOME=$_CONDOR_SCRATCH_DIR/.cache/hf"
+
+stream_output           = True
+stream_error            = True
+
+queue 1

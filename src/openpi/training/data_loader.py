@@ -1,7 +1,9 @@
 from collections.abc import Iterator, Sequence
+import json
 import logging
 import multiprocessing
 import os
+import pathlib
 import typing
 from typing import Literal, Protocol, SupportsIndex, TypeVar
 
@@ -60,6 +62,79 @@ class TransformedDataset(Dataset[T_co]):
 
     def __len__(self) -> int:
         return len(self._dataset)
+
+
+class MaskedDataset(Dataset[T_co]):
+    """The `keep` indices of a dataset, in order: MaskedDataset(ds, keep)[k] is ds[keep[k]]."""
+
+    def __init__(self, dataset: Dataset, keep: np.ndarray):
+        self._dataset = dataset
+        self._keep = np.asarray(keep, dtype=np.int64)
+
+    def __getitem__(self, index: SupportsIndex) -> T_co:
+        return self._dataset[int(self._keep[index.__index__()])]
+
+    def __len__(self) -> int:
+        return len(self._keep)
+
+
+def load_frame_mask(
+    dataset_root: str | pathlib.Path,
+    mask_name: str,
+    *,
+    repo_id: str,
+    action_horizon: int,
+    fps: float,
+    total_frames: int,
+    episode_lengths: Sequence[int],
+) -> np.ndarray:
+    """The global frame indices to KEEP, from <dataset_root>/meta/<mask_name>.
+
+    The file (action-leakage-sim/scripts/make_leak_mask.py) lists, per reason, the samples to skip under "excluded",
+    plus the dataset and horizon it was made for. A mask only means something for that exact dataset and action
+    horizon (which samples leak depends on how far ahead the chunk reaches), so any mismatch is an error, not a warning.
+    """
+    path = pathlib.Path(dataset_root) / "meta" / mask_name
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Frame mask {path} not found. Make it with action-leakage-sim/scripts/make_leak_mask.py "
+            f"and keep it in the dataset's meta/ folder (it then travels with the dataset)."
+        )
+    with open(path) as f:
+        mask = json.load(f)
+    expected = {
+        "repo_id": repo_id,
+        "horizon": action_horizon,
+        "fps": fps,
+        "total_frames": total_frames,
+        "episode_lengths": list(episode_lengths),
+    }
+    for key, want in expected.items():
+        got = mask.get(key)
+        if got != want:
+            if key == "episode_lengths" and got is not None:
+                raise ValueError(
+                    f"Frame mask {path} was made for a dataset with other episode lengths "
+                    f"({_first_difference(got, want)})."
+                )
+            raise ValueError(f"Frame mask {path} was made for {key}={got}, but this run has {key}={want}.")
+    excluded = {reason: np.asarray(idx, dtype=np.int64) for reason, idx in mask["excluded"].items()}
+    every = np.concatenate([*excluded.values(), np.zeros(0, np.int64)])
+    if len(every) and (every.min() < 0 or every.max() >= total_frames):
+        raise ValueError(f"Frame mask {path} has indices outside [0, {total_frames}).")
+    keep = np.setdiff1d(np.arange(total_frames), every)
+    logging.info(
+        f"Frame mask {mask_name}: skipping {total_frames - len(keep)} of {total_frames} samples "
+        f"({', '.join(f'{reason} {len(idx)}' for reason, idx in excluded.items())}); training on {len(keep)}"
+    )
+    return keep
+
+
+def _first_difference(got: Sequence[int], want: Sequence[int]) -> str:
+    if len(got) != len(want):
+        return f"{len(got)} episodes in the mask, {len(want)} in the dataset"
+    i = next(i for i, (g, w) in enumerate(zip(got, want, strict=True)) if g != w)
+    return f"episode {i}: {got[i]} frames in the mask, {want[i]} in the dataset"
 
 
 class IterableTransformedDataset(IterableDataset[T_co]):
@@ -144,6 +219,26 @@ def create_torch_dataset(
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
         },
     )
+
+    if data_config.frame_mask is not None:
+        # The mask holds global frame indices; they are row positions only when every episode is loaded in order.
+        if not np.array_equal(np.asarray(dataset.hf_dataset["index"]), np.arange(dataset_meta.total_frames)):
+            raise ValueError(
+                f"{repo_id}: rows are not the frames 0..{dataset_meta.total_frames - 1} in order; "
+                "cannot apply a frame mask."
+            )
+        keep = load_frame_mask(
+            dataset.root,
+            data_config.frame_mask,
+            repo_id=repo_id,
+            action_horizon=action_horizon,
+            fps=dataset_meta.fps,
+            total_frames=dataset_meta.total_frames,
+            episode_lengths=[dataset_meta.episodes[i]["length"] for i in range(dataset_meta.total_episodes)],
+        )
+        # Kept samples still read their action chunk from the whole episode (delta_timestamps above), so a skipped
+        # frame's actions remain the future of the frames before it; it is only never the start of a sample.
+        dataset = MaskedDataset(dataset, keep)
 
     if data_config.prompt_from_task:
         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])

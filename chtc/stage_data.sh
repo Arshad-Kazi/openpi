@@ -19,7 +19,8 @@ LEROBOT_HOME="${HF_LEROBOT_HOME:-${HOME}/.cache/huggingface/lerobot}"
 REPO_ID="local/${DATASET_NAME}"
 
 TRANSFER_HOST="transfer.chtc.wisc.edu"
-GROUP_STAGING_DIR="/staging/aakazi/"
+# CHTC staging layout: /staging/<first letter of netid>/<netid>. Override with STAGING_DIR=... if needed.
+GROUP_STAGING_DIR="${STAGING_DIR:-/staging/${NETID:0:1}/${NETID}}"
 STAGED_TARBALL_NAME="${DATASET_NAME}_dataset.tar.gz"
 TARBALL="${TMPDIR:-/tmp}/${STAGED_TARBALL_NAME}"
 
