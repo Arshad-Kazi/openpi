@@ -1063,8 +1063,8 @@ _CONFIGS = [
     # apart from frame_mask, so the leak is the only difference between the models.
     TrainConfig(
         name="pi05_sim_tray",
-        project_name="Collaborative Policy",
-        wandb_entity="RT2-DIFFUSE",
+        project_name="sim_tray",
+        wandb_entity="arshad1kazi-university-of-wisconsin-madison",
         wandb_group="OpenPI (Collab)",
         wandb_tags=("openpi", "collab", "pi05", "sim_tray"),
         model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
@@ -1078,8 +1078,8 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_sim_tray_noleak",
-        project_name="Collaborative Policy",
-        wandb_entity="RT2-DIFFUSE",
+        project_name="sim_tray",
+        wandb_entity="arshad1kazi-university-of-wisconsin-madison",
         wandb_group="OpenPI (Collab)",
         wandb_tags=("openpi", "collab", "pi05", "sim_tray", "noleak"),
         model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
