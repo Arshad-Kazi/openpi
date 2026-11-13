@@ -169,3 +169,6 @@ cython_debug/
 
 # Local CHTC data-prep script (contains machine-specific paths/netid)
 chtc/prepare_and_stage.sh
+
+# HTCondor job logs
+logs/
